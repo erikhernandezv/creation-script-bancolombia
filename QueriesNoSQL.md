@@ -8,6 +8,32 @@ A continuación se presentan 5 enunciados de consultas basados en las coleccione
 
 **Consulta MongoDB:**
 ```javascript
+db.Clientes.aggregate([
+  { 
+    $unwind: "$cuentas" 
+  },
+  {
+    $group: {
+      _id: "$cuentas.tipo_cuenta",
+      total_saldo: { $sum: "$cuentas.saldo" },
+      promedio_saldo: { $avg: "$cuentas.saldo" },
+      saldo_maximo: { $max: "$cuentas.saldo" },
+      saldo_minimo: { $min: "$cuentas.saldo" }
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      tipo_cuenta: "$_id",
+      total_saldo: 1,
+      promedio_saldo: 1,
+      saldo_maximo: 1,
+      saldo_minimo: 1
+    }
+  }
+]);
+
+
 ```
 
 ## 2. Patrones de Transacciones por Cliente
@@ -16,6 +42,37 @@ A continuación se presentan 5 enunciados de consultas basados en las coleccione
 
 **Consulta MongoDB:**
 ```javascript
+db.Transacciones.aggregate([
+  {
+    $group: {
+      _id: {
+        cliente_id: "$cliente_ref",
+        tipo_transaccion: "$tipo_transaccion"
+      },
+      cantidad_transacciones: { $sum: 1 },
+      monto_total: { $sum: "$monto" }
+    }
+  },
+  {
+    $group: {
+      _id: "$_id.cliente_id",
+      transacciones: {
+        $push: {
+          tipo: "$_id.tipo_transaccion",
+          cantidad: "$cantidad_transacciones",
+          monto: "$monto_total"
+        }
+      }
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      cliente_id: "$_id",
+      transacciones: 1
+    }
+  }
+]);
 ```
 
 ## 3. Clientes con Múltiples Tarjetas de Crédito
@@ -24,6 +81,37 @@ A continuación se presentan 5 enunciados de consultas basados en las coleccione
 
 **Consulta MongoDB:**
 ```javascript
+db.Clientes.aggregate([
+  { $unwind: "$cuentas" },
+  { $unwind: "$cuentas.tarjetas" },
+  { $match: { "cuentas.tarjetas.tipo_tarjeta": "credito" } },
+  {
+    $group: {
+      _id: {
+        cliente_id: "$_id",
+        nombre: "$nombre",
+        cedula: "$cedula",
+        correo: "$correo",
+        direccion: "$direccion"
+      },
+      tarjetas_credito: { $push: "$cuentas.tarjetas" },
+      cantidad_tarjetas: { $sum: 1 }
+    }
+  },
+  { $match: { cantidad_tarjetas: { $gt: 1 } } },
+  {
+    $project: {
+      _id: 0,
+      cliente_id: "$_id.cliente_id",
+      nombre: "$_id.nombre",
+      cedula: "$_id.cedula",
+      correo: "$_id.correo",
+      direccion: "$_id.direccion",
+      cantidad_tarjetas: 1,
+      tarjetas_credito: 1
+    }
+  }
+]);
 ```
 
 ## 4. Análisis de Medios de Pago más Utilizados
@@ -32,6 +120,37 @@ A continuación se presentan 5 enunciados de consultas basados en las coleccione
 
 **Consulta MongoDB:**
 ```javascript
+db.Transacciones.aggregate([
+  { $match: { tipo_transaccion: "deposito" } },
+  {
+    $group: {
+      _id: {
+        mes: { $dateToString: { format: "%Y-%m", date: "$fecha" } },
+        medio_pago: "$detalles_deposito.medio_pago"
+      },
+      cantidad: { $sum: 1 }
+    }
+  },
+  {
+    $group: {
+      _id: "$_id.mes",
+      medios_pago: {
+        $push: {
+          medio: "$_id.medio_pago",
+          cantidad: "$cantidad"
+        }
+      }
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      mes: "$_id",
+      medios_pago: 1
+    }
+  },
+  { $sort: { mes: 1 } }
+]);
 ```
 
 ## 5. Detección de Cuentas con Transacciones Sospechosas
@@ -40,4 +159,34 @@ A continuación se presentan 5 enunciados de consultas basados en las coleccione
 
 **Consulta MongoDB:**
 ```javascript
+db.Transacciones.aggregate([
+  { $match: { tipo_transaccion: "retiro" } },
+  {
+    $group: {
+      _id: {
+        num_cuenta: "$num_cuenta",
+        fecha: { $dateToString: { format: "%Y-%m-%d", date: "$fecha" } }
+      },
+      cantidad_retiros: { $sum: 1 },
+      monto_total: { $sum: "$monto" },
+      transacciones: { $push: "$$ROOT" }
+    }
+  },
+  {
+    $match: {
+      cantidad_retiros: { $gt: 3 },
+      monto_total: { $gt: 1000000 }
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      num_cuenta: "$_id.num_cuenta",
+      fecha: "$_id.fecha",
+      cantidad_retiros: 1,
+      monto_total: 1,
+      transacciones: 1
+    }
+  }
+]);
 ```
